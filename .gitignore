@@ -35,3 +35,6 @@ Desktop.ini
 appsettings.Local.json
 appsettings.*.Local.json
 secrets.json
+*.rpm 
+*.class 
+*.dat 
