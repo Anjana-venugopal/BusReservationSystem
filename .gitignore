@@ -1,0 +1,37 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Aa]rtifacts/
+
+## Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.cache
+
+## .NET tooling
+project.lock.json
+project.fragment.lock.json
+*.nupkg
+*.snupkg
+packages/
+TestResults/
+
+## Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+## Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## Local configuration and secrets
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json

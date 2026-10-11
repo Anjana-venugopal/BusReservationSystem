@@ -1,13 +1,18 @@
+import javax.swing.*;
+import javax.swing.border.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.*;
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import javax.swing.*;
-import javax.swing.border.*;
-import javax.swing.table.DefaultTableModel;
 
 /* ============================================================================
    TIER 1: DATABASE PERSISTENCE LAYER (Storage & Repository)
@@ -38,7 +43,7 @@ interface IDatabaseRepository {
 class FileDatabase implements IDatabaseRepository, Serializable {
     private static final long serialVersionUID = 1L;
     private static FileDatabase instance;
-    private static final String STORAGE_FILE = "bharat_yatra_database.dat";
+    private static final String STORAGE_FILE = "bharat_yatra_graphic_db.dat";
 
     private final Map<String, User> userTable = new ConcurrentHashMap<>();
     private final Map<String, Bus> busTable = new ConcurrentHashMap<>();
@@ -294,11 +299,11 @@ abstract class Bus implements Serializable {
     public Route getRoute() { return route; }
     public Map<Integer, Seat> getSeats() { return seats; }
     public abstract String getBusServiceType();
+    public abstract Color getThemeColor();
     public abstract double calculateBaseFare();
 
     public double calculateTotalFareWithGst() {
-        double base = calculateBaseFare();
-        return Math.round(base * 1.05);
+        return Math.round(calculateBaseFare() * 1.05); // 5% GST included
     }
 
     public synchronized int getAvailableSeatCount() {
@@ -314,7 +319,8 @@ class SuperFastBus extends Bus {
     public SuperFastBus(String busId, String registrationNumber, Route route, int totalSeats) {
         super(busId, registrationNumber, route, totalSeats);
     }
-    @Override public String getBusServiceType() { return "KSRTC Super Fast Non-AC"; }
+    @Override public String getBusServiceType() { return "KSRTC Super Fast Express (Non-AC)"; }
+    @Override public Color getThemeColor() { return new Color(214, 48, 49); } // Indian Red
     @Override public double calculateBaseFare() { return Math.round(getRoute().getDistanceKm() * 1.25 + 25.0); }
 }
 
@@ -322,7 +328,8 @@ class GarudaAiravatAcBus extends Bus {
     public GarudaAiravatAcBus(String busId, String registrationNumber, Route route, int totalSeats) {
         super(busId, registrationNumber, route, totalSeats);
     }
-    @Override public String getBusServiceType() { return "Airavat Club Class Multi-Axle AC"; }
+    @Override public String getBusServiceType() { return "Airavat Club Class Multi-Axle Volvo"; }
+    @Override public Color getThemeColor() { return new Color(9, 132, 227); } // Sky Blue
     @Override public double calculateBaseFare() { return Math.round((getRoute().getDistanceKm() * 2.15) + 120.0); }
 }
 
@@ -330,7 +337,8 @@ class SwiftSleeperBus extends Bus {
     public SwiftSleeperBus(String busId, String registrationNumber, Route route, int totalSeats) {
         super(busId, registrationNumber, route, totalSeats);
     }
-    @Override public String getBusServiceType() { return "KSRTC-SWIFT AC Gajaraj Sleeper"; }
+    @Override public String getBusServiceType() { return "KSRTC-SWIFT Gajaraj AC Sleeper"; }
+    @Override public Color getThemeColor() { return new Color(108, 92, 231); } // Royal Purple
     @Override public double calculateBaseFare() { return Math.round((getRoute().getDistanceKm() * 2.65) + 200.0); }
 }
 
@@ -392,12 +400,12 @@ class ReservationServiceImpl implements IReservationService {
         if (seat == null) throw new IllegalArgumentException("Invalid Seat Number specified.");
 
         if (!seat.reserve(user.getUsername())) {
-            throw new IllegalStateException("Seat #" + seatNumber + " is already reserved by another passenger!");
+            throw new IllegalStateException("Seat #" + seatNumber + " is already occupied!");
         }
 
         String pnr = "KL" + (1000000 + new Random().nextInt(9000000));
         double totalFare = bus.calculateTotalFareWithGst();
-        String mobile = (user instanceof Passenger) ? ((Passenger) user).getMobileNumber() : "Official Counter";
+        String mobile = (user instanceof Passenger) ? ((Passenger) user).getMobileNumber() : "Depot Reservation Counter";
 
         Ticket ticket = new Ticket(pnr, busId, user.getUsername(), user.getFullName(), mobile, seatNumber, totalFare);
 
@@ -425,8 +433,216 @@ class ReservationServiceImpl implements IReservationService {
 }
 
 /* ============================================================================
-   TIER 3: PRESENTATION LAYER (GUI)
+   TIER 3: PRESENTATION LAYER (RICH GRAPHICAL SWING UI)
    ============================================================================ */
+
+class ModernButton extends JButton {
+    private Color normalColor;
+    private Color hoverColor;
+
+    public ModernButton(String text, Color normalColor, Color hoverColor) {
+        super(text);
+        this.normalColor = normalColor;
+        this.hoverColor = hoverColor;
+        setContentAreaFilled(false);
+        setFocusPainted(false);
+        setBorderPainted(false);
+        setForeground(Color.WHITE);
+        setFont(new Font("Segoe UI", Font.BOLD, 13));
+        setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) { setBackground(hoverColor); repaint(); }
+            @Override
+            public void mouseExited(MouseEvent e) { setBackground(normalColor); repaint(); }
+        });
+        setBackground(normalColor);
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(getBackground());
+        g2.fill(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), 12, 12));
+        g2.dispose();
+        super.paintComponent(g);
+    }
+}
+
+// Graphical Bus Coach Blueprint Canvas
+class BusCoachCanvas extends JPanel {
+    private final Bus bus;
+    private final int selectedSeatNumber;
+    private final java.util.function.Consumer<Integer> onSeatSelected;
+    private final Map<Integer, Rectangle> seatHitBoxes = new HashMap<>();
+
+    public BusCoachCanvas(Bus bus, int selectedSeatNumber, java.util.function.Consumer<Integer> onSeatSelected) {
+        this.bus = bus;
+        this.selectedSeatNumber = selectedSeatNumber;
+        this.onSeatSelected = onSeatSelected;
+        setBackground(new Color(241, 243, 248));
+        setPreferredSize(new Dimension(820, 520));
+
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                for (Map.Entry<Integer, Rectangle> entry : seatHitBoxes.entrySet()) {
+                    if (entry.getValue().contains(e.getPoint())) {
+                        Seat s = bus.getSeats().get(entry.getKey());
+                        if (s != null && !s.isBooked()) {
+                            onSeatSelected.accept(entry.getKey());
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int busX = 40;
+        int busY = 30;
+        int busWidth = 730;
+        int busHeight = 440;
+
+        // Shadow under bus body
+        g2.setColor(new Color(0, 0, 0, 35));
+        g2.fill(new RoundRectangle2D.Double(busX + 6, busY + 8, busWidth, busHeight, 40, 40));
+
+        // Outer Bus Frame (Metallic Gradient Body)
+        GradientPaint bodyGrad = new GradientPaint(
+            busX, busY, new Color(255, 255, 255),
+            busX, busY + busHeight, new Color(230, 235, 245)
+        );
+        g2.setPaint(bodyGrad);
+        g2.fill(new RoundRectangle2D.Double(busX, busY, busWidth, busHeight, 40, 40));
+
+        // Outline colored by bus brand theme
+        g2.setColor(bus.getThemeColor());
+        g2.setStroke(new BasicStroke(4f));
+        g2.draw(new RoundRectangle2D.Double(busX, busY, busWidth, busHeight, 40, 40));
+
+        // Front Cockpit / Windshield (Front on Left)
+        g2.setColor(new Color(41, 128, 185, 90));
+        g2.fill(new RoundRectangle2D.Double(busX + 15, busY + 20, 95, busHeight - 40, 25, 25));
+        g2.setColor(new Color(52, 73, 94));
+        g2.setStroke(new BasicStroke(2f));
+        g2.draw(new RoundRectangle2D.Double(busX + 15, busY + 20, 95, busHeight - 40, 25, 25));
+
+        // Cockpit Label & Steering Icon
+        g2.setColor(new Color(44, 62, 80));
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        g2.drawString("DRIVER CABIN", busX + 18, busY + 45);
+
+        // Steering Wheel Graphic
+        int steerX = busX + 45;
+        int steerY = busY + 70;
+        g2.setColor(new Color(50, 50, 50));
+        g2.fillOval(steerX, steerY, 36, 36);
+        g2.setColor(Color.WHITE);
+        g2.fillOval(steerX + 8, steerY + 8, 20, 20);
+        g2.setColor(new Color(50, 50, 50));
+        g2.fillOval(steerX + 14, steerY + 14, 8, 8);
+
+        // Front Headlights
+        g2.setColor(new Color(241, 196, 15));
+        g2.fillRoundRect(busX - 5, busY + 35, 8, 25, 5, 5);
+        g2.fillRoundRect(busX - 5, busY + busHeight - 60, 8, 25, 5, 5);
+
+        // Rear Tail Lamps
+        g2.setColor(new Color(231, 76, 60));
+        g2.fillRoundRect(busX + busWidth - 3, busY + 40, 8, 25, 5, 5);
+        g2.fillRoundRect(busX + busWidth - 3, busY + busHeight - 65, 8, 25, 5, 5);
+
+        // Central Aisle Carpet
+        int aisleY = busY + (busHeight / 2) - 26;
+        g2.setColor(new Color(220, 224, 230));
+        g2.fillRect(busX + 125, aisleY, busWidth - 145, 52);
+        g2.setColor(new Color(189, 195, 199));
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        g2.drawString("< < CENTRAL WALKING AISLE > >", busX + 280, aisleY + 31);
+
+        // Draw 2x2 Seating Rows
+        seatHitBoxes.clear();
+        int totalSeats = bus.getSeats().size();
+        int cols = (int) Math.ceil((double) totalSeats / 4.0);
+
+        int startX = busX + 135;
+        int spacingX = Math.min(58, (busWidth - 160) / Math.max(1, cols));
+
+        int seatW = 46;
+        int seatH = 40;
+
+        int row1Y = busY + 35;
+        int row2Y = busY + 85;
+        int row3Y = aisleY + 60;
+        int row4Y = aisleY + 110;
+
+        int seatIdx = 1;
+        for (int c = 0; c < cols; c++) {
+            int cx = startX + (c * spacingX);
+
+            drawSeatGraphic(g2, cx, row1Y, seatW, seatH, seatIdx++);
+            if (seatIdx <= totalSeats) drawSeatGraphic(g2, cx, row2Y, seatW, seatH, seatIdx++);
+            if (seatIdx <= totalSeats) drawSeatGraphic(g2, cx, row3Y, seatW, seatH, seatIdx++);
+            if (seatIdx <= totalSeats) drawSeatGraphic(g2, cx, row4Y, seatW, seatH, seatIdx++);
+        }
+
+        g2.dispose();
+    }
+
+    private void drawSeatGraphic(Graphics2D g2, int x, int y, int w, int h, int seatNum) {
+        Seat seat = bus.getSeats().get(seatNum);
+        if (seat == null) return;
+
+        Rectangle rect = new Rectangle(x, y, w, h);
+        seatHitBoxes.put(seatNum, rect);
+
+        Color mainColor;
+        Color headrestColor;
+        String statusText;
+
+        if (seat.isBooked()) {
+            mainColor = new Color(220, 53, 69); // Occupied Crimson
+            headrestColor = new Color(176, 42, 55);
+            statusText = "X";
+        } else if (seatNum == selectedSeatNumber) {
+            mainColor = new Color(40, 167, 69); // Selected Emerald
+            headrestColor = new Color(30, 126, 52);
+            statusText = "OK";
+        } else {
+            mainColor = new Color(23, 162, 184); // Available Cyan Blue
+            headrestColor = new Color(17, 122, 139);
+            statusText = String.valueOf(seatNum);
+        }
+
+        // Drop shadow for seat
+        g2.setColor(new Color(0, 0, 0, 30));
+        g2.fill(new RoundRectangle2D.Double(x + 2, y + 2, w, h, 10, 10));
+
+        // Seat Main Body
+        g2.setColor(mainColor);
+        g2.fill(new RoundRectangle2D.Double(x, y, w, h, 10, 10));
+
+        // Headrest Pillow Graphic
+        g2.setColor(headrestColor);
+        g2.fill(new RoundRectangle2D.Double(x + 6, y + 3, w - 12, 10, 6, 6));
+
+        // Seat label text
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        FontMetrics fm = g2.getFontMetrics();
+        int txtW = fm.stringWidth(statusText);
+        g2.drawString(statusText, x + (w - txtW) / 2, y + 28);
+    }
+}
 
 public class BusReservationGUI extends JFrame {
     private final IDatabaseRepository db = FileDatabase.getInstance();
@@ -434,7 +650,7 @@ public class BusReservationGUI extends JFrame {
     private User currentUser = null;
 
     private JComboBox<String> busSelector;
-    private JPanel seatGridPanel;
+    private JPanel coachContainerPanel;
     private JLabel statusLabel;
     private JLabel fareBreakdownLabel;
     private DefaultTableModel ticketTableModel;
@@ -453,11 +669,11 @@ public class BusReservationGUI extends JFrame {
         }
 
         if (db.getAllRoutes().isEmpty()) {
-            Route r1 = new Route("RT-101", "Thiruvananthapuram Central (TVC)", "Ernakulam South (KSRTC Stand)", 
+            Route r1 = new Route("RT-101", "Thiruvananthapuram (TVC)", "Ernakulam South (KSRTC)", 
                                  218.0, "06:00 AM", "11:15 AM", "Platform 3");
-            Route r2 = new Route("RT-204", "Kozhikode New Bus Stand", "Bengaluru (Shantinagar Bus Station)", 
+            Route r2 = new Route("RT-204", "Kozhikode Bus Stand", "Bengaluru (Shantinagar)", 
                                  354.0, "09:30 PM", "05:45 AM", "Platform 7");
-            Route r3 = new Route("RT-308", "Ernakulam Vyttila Hub", "Chennai (Koyambedu / CMBT)", 
+            Route r3 = new Route("RT-308", "Ernakulam Vyttila Hub", "Chennai (CMBT / Koyambedu)", 
                                  684.0, "04:45 PM", "07:30 AM", "Platform 1");
 
             db.saveRoute(r1);
@@ -471,8 +687,8 @@ public class BusReservationGUI extends JFrame {
     }
 
     private void initUI() {
-        setTitle("BHARAT YATRA - State Road Transport & Intercity Seat Reservation Portal");
-        setSize(1100, 760);
+        setTitle("BHARAT YATRA - State Road Transport Corporation Luxury ERP System");
+        setSize(1160, 800);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -480,30 +696,46 @@ public class BusReservationGUI extends JFrame {
             System.exit(0);
         }
 
-        JTabbedPane tabbedPane = new JTabbedPane();
-        tabbedPane.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        // Header Strip with Saffron / Navy Tricolor Vibe
+        JPanel headerPanel = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                GradientPaint gp = new GradientPaint(0, 0, new Color(15, 32, 67), getWidth(), 0, new Color(30, 80, 160));
+                g2.setPaint(gp);
+                g2.fillRect(0, 0, getWidth(), getHeight());
 
-        tabbedPane.addTab("Coach Selection & Live Seating", createBookingPanel());
-        tabbedPane.addTab("Passenger Bookings & Cancellation", createMyBookingsPanel());
+                // Subtle Saffron Top Accent Line
+                g2.setColor(new Color(255, 122, 0));
+                g2.fillRect(0, 0, getWidth(), 4);
+                g2.dispose();
+            }
+        };
+        headerPanel.setPreferredSize(new Dimension(getWidth(), 70));
+        headerPanel.setBorder(new EmptyBorder(12, 25, 12, 25));
 
-        if (currentUser instanceof Admin) {
-            tabbedPane.addTab("Depot Master Fleet Dispatch", createAdminPanel());
-        }
-
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(new Color(24, 43, 73));
-        headerPanel.setBorder(new EmptyBorder(12, 20, 12, 20));
-
-        JLabel titleLbl = new JLabel("BHARAT EXPRESS RESERVATION SYSTEM (KSRTC & INTERSTATE CO-OP)");
+        JLabel titleLbl = new JLabel("BHARAT LUXURY INTERCITY TRANSIT PORTAL");
         titleLbl.setForeground(Color.WHITE);
-        titleLbl.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        titleLbl.setFont(new Font("Segoe UI", Font.BOLD, 18));
 
-        JLabel userBadge = new JLabel("Logged in: " + currentUser.getFullName() + " [" + currentUser.getRole() + "]");
-        userBadge.setForeground(new Color(255, 215, 0));
-        userBadge.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        JLabel userBadge = new JLabel("<html><body align='right'><font color='#FFD700'><b>" + 
+            currentUser.getFullName() + "</b></font><br/><font color='#E0E0E0' size='2'>" + 
+            currentUser.getRole() + "</font></body></html>");
+        userBadge.setHorizontalAlignment(SwingConstants.RIGHT);
 
         headerPanel.add(titleLbl, BorderLayout.WEST);
         headerPanel.add(userBadge, BorderLayout.EAST);
+
+        // Tabbed Panel
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        tabbedPane.addTab("  Interactive Bus Seating Map  ", createBookingPanel());
+        tabbedPane.addTab("  My Confirmed Bookings  ", createMyBookingsPanel());
+
+        if (currentUser instanceof Admin) {
+            tabbedPane.addTab("  Depot Master Fleet Dispatch  ", createAdminPanel());
+        }
 
         add(headerPanel, BorderLayout.NORTH);
         add(tabbedPane, BorderLayout.CENTER);
@@ -511,15 +743,18 @@ public class BusReservationGUI extends JFrame {
     }
 
     private boolean authenticateUserWithDialog() {
-        JDialog authDialog = new JDialog(this, "Portal Security Authentication", true);
-        authDialog.setSize(520, 360);
+        JDialog authDialog = new JDialog(this, "Bharat Yatra Portal Security Login", true);
+        authDialog.setSize(520, 390);
         authDialog.setLocationRelativeTo(null);
         authDialog.setLayout(new BorderLayout());
 
         JTabbedPane authTabs = new JTabbedPane();
+        authTabs.setFont(new Font("Segoe UI", Font.BOLD, 12));
 
+        // Passenger Sign-in Tab
         JPanel passengerLoginPanel = new JPanel(new GridLayout(3, 2, 10, 12));
         passengerLoginPanel.setBorder(new EmptyBorder(25, 30, 25, 30));
+        passengerLoginPanel.setBackground(new Color(248, 250, 252));
         JTextField pUser = new JTextField();
         JPasswordField pPass = new JPasswordField();
         passengerLoginPanel.add(new JLabel("Passenger Username:"));
@@ -527,35 +762,35 @@ public class BusReservationGUI extends JFrame {
         passengerLoginPanel.add(new JLabel("Password:"));
         passengerLoginPanel.add(pPass);
 
-        JButton pLoginBtn = new JButton("Passenger Sign In");
-        pLoginBtn.setBackground(new Color(30, 130, 76));
-        pLoginBtn.setForeground(Color.WHITE);
+        ModernButton pLoginBtn = new ModernButton("Passenger Sign In", new Color(40, 167, 69), new Color(30, 135, 55));
         passengerLoginPanel.add(new JLabel(""));
         passengerLoginPanel.add(pLoginBtn);
 
+        // Register Tab
         JPanel registerPanel = new JPanel(new GridLayout(5, 2, 8, 8));
         registerPanel.setBorder(new EmptyBorder(15, 25, 15, 25));
+        registerPanel.setBackground(new Color(248, 250, 252));
         JTextField regName = new JTextField();
         JTextField regPhone = new JTextField();
         JTextField regUser = new JTextField();
         JPasswordField regPass = new JPasswordField();
-        registerPanel.add(new JLabel("Full Legal Name:"));
+        registerPanel.add(new JLabel("Full Name:"));
         registerPanel.add(regName);
-        registerPanel.add(new JLabel("10-Digit Mobile (+91):"));
+        registerPanel.add(new JLabel("10-Digit Mobile:"));
         registerPanel.add(regPhone);
-        registerPanel.add(new JLabel("Desired Username:"));
+        registerPanel.add(new JLabel("Username:"));
         registerPanel.add(regUser);
         registerPanel.add(new JLabel("Password:"));
         registerPanel.add(regPass);
 
-        JButton regBtn = new JButton("Create Passenger Account");
-        regBtn.setBackground(new Color(41, 128, 185));
-        regBtn.setForeground(Color.WHITE);
+        ModernButton regBtn = new ModernButton("Create New Account", new Color(23, 162, 184), new Color(18, 130, 150));
         registerPanel.add(new JLabel(""));
         registerPanel.add(regBtn);
 
+        // Depot Master Admin Tab
         JPanel adminLoginPanel = new JPanel(new GridLayout(3, 2, 10, 12));
         adminLoginPanel.setBorder(new EmptyBorder(25, 30, 25, 30));
+        adminLoginPanel.setBackground(new Color(248, 250, 252));
         JTextField admUser = new JTextField();
         JPasswordField admPass = new JPasswordField();
         adminLoginPanel.add(new JLabel("Officer Employee ID:"));
@@ -563,15 +798,13 @@ public class BusReservationGUI extends JFrame {
         adminLoginPanel.add(new JLabel("Security Password:"));
         adminLoginPanel.add(admPass);
 
-        JButton admLoginBtn = new JButton("Officer Authorization");
-        admLoginBtn.setBackground(new Color(192, 57, 43));
-        admLoginBtn.setForeground(Color.WHITE);
+        ModernButton admLoginBtn = new ModernButton("Officer Authorization", new Color(220, 53, 69), new Color(180, 40, 50));
         adminLoginPanel.add(new JLabel(""));
         adminLoginPanel.add(admLoginBtn);
 
         authTabs.addTab("Passenger Login", passengerLoginPanel);
-        authTabs.addTab("Register New Passenger", registerPanel);
-        authTabs.addTab("Depot Controller Login", adminLoginPanel);
+        authTabs.addTab("Register Passenger", registerPanel);
+        authTabs.addTab("Depot Officer Login", adminLoginPanel);
 
         final boolean[] success = {false};
 
@@ -582,7 +815,7 @@ public class BusReservationGUI extends JFrame {
                 success[0] = true;
                 authDialog.dispose();
             } else {
-                JOptionPane.showMessageDialog(authDialog, "Invalid passenger credentials.", "Auth Failed", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(authDialog, "Invalid passenger credentials.", "Authentication Denied", JOptionPane.ERROR_MESSAGE);
             }
         });
 
@@ -593,11 +826,11 @@ public class BusReservationGUI extends JFrame {
             String pwd = new String(regPass.getPassword()).trim();
 
             if (name.isEmpty() || mobile.length() < 10 || usr.isEmpty() || pwd.isEmpty()) {
-                JOptionPane.showMessageDialog(authDialog, "Please enter valid credentials with 10-digit mobile number.", "Input Validation", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(authDialog, "Please enter all fields and a valid 10-digit mobile number.", "Validation Notice", JOptionPane.WARNING_MESSAGE);
                 return;
             }
             if (db.findUserByUsername(usr) != null) {
-                JOptionPane.showMessageDialog(authDialog, "Username already exists in system.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(authDialog, "Username is already registered.", "Notice", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
@@ -605,7 +838,7 @@ public class BusReservationGUI extends JFrame {
             db.saveUser(newPas);
             currentUser = newPas;
             success[0] = true;
-            JOptionPane.showMessageDialog(authDialog, "Account registered successfully for " + name + "!");
+            JOptionPane.showMessageDialog(authDialog, "Account successfully registered for " + name + "!");
             authDialog.dispose();
         });
 
@@ -616,7 +849,7 @@ public class BusReservationGUI extends JFrame {
                 success[0] = true;
                 authDialog.dispose();
             } else {
-                JOptionPane.showMessageDialog(authDialog, "Invalid Depot Controller credentials.", "Access Denied", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(authDialog, "Invalid officer credentials.", "Access Prohibited", JOptionPane.ERROR_MESSAGE);
             }
         });
 
@@ -627,57 +860,104 @@ public class BusReservationGUI extends JFrame {
 
     private JPanel createBookingPanel() {
         JPanel root = new JPanel(new BorderLayout(14, 14));
-        root.setBorder(new EmptyBorder(15, 15, 15, 15));
+        root.setBackground(new Color(245, 247, 250));
+        root.setBorder(new EmptyBorder(16, 18, 16, 18));
 
-        JPanel top = new JPanel(new BorderLayout(8, 8));
-        top.setBackground(new Color(240, 243, 246));
-        top.setBorder(new CompoundBorder(new LineBorder(new Color(210, 215, 220)), new EmptyBorder(10, 12, 10, 12)));
+        // Top Route Filter Bar
+        JPanel top = new JPanel(new BorderLayout(10, 10));
+        top.setBackground(Color.WHITE);
+        top.setBorder(new CompoundBorder(new LineBorder(new Color(225, 230, 238), 1, true), new EmptyBorder(12, 16, 12, 16)));
 
-        JLabel selectLbl = new JLabel("Select Service / Route: ");
-        selectLbl.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        JLabel selectLbl = new JLabel("Available Routes & Services: ");
+        selectLbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        selectLbl.setForeground(new Color(33, 37, 41));
 
         busSelector = new JComboBox<>();
-        refreshBusSelector();
         busSelector.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        busSelector.addActionListener(e -> renderSeatGrid());
+        refreshBusSelector();
+        busSelector.addActionListener(e -> renderCoachLayout());
 
         top.add(selectLbl, BorderLayout.WEST);
         top.add(busSelector, BorderLayout.CENTER);
 
-        seatGridPanel = new JPanel();
-        seatGridPanel.setBackground(new Color(250, 250, 252));
-        seatGridPanel.setBorder(new TitledBorder(new LineBorder(new Color(180, 190, 200)), "Intercity Coach Layout [2x2 Standard & Sleeper Berths]"));
-        JScrollPane scroll = new JScrollPane(seatGridPanel);
+        // Center Visual Canvas Wrapper
+        coachContainerPanel = new JPanel(new BorderLayout());
+        coachContainerPanel.setBackground(Color.WHITE);
+        coachContainerPanel.setBorder(new CompoundBorder(
+            new LineBorder(new Color(220, 226, 235), 1, true),
+            new EmptyBorder(10, 10, 10, 10)
+        ));
 
+        // Legend panel (Available, Selected, Booked)
+        JPanel legendPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 30, 8));
+        legendPanel.setOpaque(false);
+        legendPanel.add(createLegendBadge("Seat Available (Click to select)", new Color(23, 162, 184)));
+        legendPanel.add(createLegendBadge("Your Selected Seat", new Color(40, 167, 69)));
+        legendPanel.add(createLegendBadge("Already Booked [X]", new Color(220, 53, 69)));
+
+        JPanel centerWrapper = new JPanel(new BorderLayout());
+        centerWrapper.setOpaque(false);
+        centerWrapper.add(legendPanel, BorderLayout.NORTH);
+        centerWrapper.add(coachContainerPanel, BorderLayout.CENTER);
+
+        // Bottom Action & Fare Bar
         JPanel bottom = new JPanel(new BorderLayout());
-        bottom.setBackground(new Color(245, 245, 245));
-        bottom.setBorder(new CompoundBorder(new LineBorder(new Color(210, 210, 210)), new EmptyBorder(12, 15, 12, 15)));
+        bottom.setBackground(Color.WHITE);
+        bottom.setBorder(new CompoundBorder(new LineBorder(new Color(225, 230, 238), 1, true), new EmptyBorder(14, 18, 14, 18)));
 
-        JPanel textSide = new JPanel(new GridLayout(2, 1));
+        JPanel textSide = new JPanel(new GridLayout(2, 1, 0, 4));
         textSide.setOpaque(false);
+
         statusLabel = new JLabel("Selected Seat: None");
-        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        fareBreakdownLabel = new JLabel("Distance Tariff + Surcharges + 5% GST Included");
+        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        statusLabel.setForeground(new Color(24, 43, 73));
+
+        fareBreakdownLabel = new JLabel("Click on any blue seat above to allocate passenger berth.");
         fareBreakdownLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-        fareBreakdownLabel.setForeground(Color.DARK_GRAY);
+        fareBreakdownLabel.setForeground(new Color(108, 117, 125));
+
         textSide.add(statusLabel);
         textSide.add(fareBreakdownLabel);
 
-        JButton bookBtn = new JButton("Confirm Booking & Issue Boarding Pass");
-        bookBtn.setBackground(new Color(30, 130, 76));
-        bookBtn.setForeground(Color.WHITE);
-        bookBtn.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        ModernButton bookBtn = new ModernButton("  Proceed to Reserve & Issue Boarding Pass  ", new Color(40, 167, 69), new Color(33, 136, 56));
+        bookBtn.setPreferredSize(new Dimension(320, 44));
         bookBtn.addActionListener(e -> handleBooking());
 
         bottom.add(textSide, BorderLayout.CENTER);
         bottom.add(bookBtn, BorderLayout.EAST);
 
         root.add(top, BorderLayout.NORTH);
-        root.add(scroll, BorderLayout.CENTER);
+        root.add(centerWrapper, BorderLayout.CENTER);
         root.add(bottom, BorderLayout.SOUTH);
 
-        renderSeatGrid();
+        renderCoachLayout();
         return root;
+    }
+
+    private JPanel createLegendBadge(String label, Color color) {
+        JPanel badge = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        badge.setOpaque(false);
+
+        JPanel dot = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(color);
+                g2.fillRoundRect(0, 0, 18, 18, 6, 6);
+            }
+        };
+        dot.setPreferredSize(new Dimension(18, 18));
+        dot.setOpaque(false);
+
+        JLabel lbl = new JLabel(label);
+        lbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        lbl.setForeground(new Color(73, 80, 87));
+
+        badge.add(dot);
+        badge.add(lbl);
+        return badge;
     }
 
     private void refreshBusSelector() {
@@ -685,14 +965,15 @@ public class BusReservationGUI extends JFrame {
         for (Bus b : db.getAllBuses()) {
             busSelector.addItem(b.getBusId() + " | " + b.getBusServiceType() + " | " + 
                 b.getRoute().getOrigin() + " -> " + b.getRoute().getDestination() + 
-                " | Dept: " + b.getRoute().getDepartureTime() + " | Fare: INR " + (int) b.calculateTotalFareWithGst());
+                " | Dept: " + b.getRoute().getDepartureTime() + " | Total: INR " + (int) b.calculateTotalFareWithGst());
         }
     }
 
-    private void renderSeatGrid() {
-        seatGridPanel.removeAll();
+    private void renderCoachLayout() {
+        coachContainerPanel.removeAll();
         selectedSeatNumber = -1;
         statusLabel.setText("Selected Seat: None");
+        fareBreakdownLabel.setText("Click on any blue seat above to allocate passenger berth.");
 
         String selectedItem = (String) busSelector.getSelectedItem();
         if (selectedItem == null) return;
@@ -700,42 +981,34 @@ public class BusReservationGUI extends JFrame {
         Bus bus = db.findBusById(busId);
         if (bus == null) return;
 
-        Map<Integer, Seat> seats = bus.getSeats();
-        int total = seats.size();
-        seatGridPanel.setLayout(new GridLayout(0, 4, 16, 12));
+        BusCoachCanvas canvas = new BusCoachCanvas(bus, selectedSeatNumber, seatNum -> {
+            selectedSeatNumber = seatNum;
+            statusLabel.setText("Selected Seat: #" + seatNum + " on " + bus.getRegistrationNumber());
+            fareBreakdownLabel.setText("Base Fare: INR " + (int)bus.calculateBaseFare() + " + 5% GST = Total Payable: INR " + (int)bus.calculateTotalFareWithGst());
+            renderCoachLayoutWithSelected(bus, seatNum);
+        });
 
-        for (int i = 1; i <= total; i++) {
-            Seat s = seats.get(i);
-            JButton btn = new JButton();
-            btn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-            btn.setPreferredSize(new Dimension(100, 48));
+        coachContainerPanel.add(new JScrollPane(canvas), BorderLayout.CENTER);
+        coachContainerPanel.revalidate();
+        coachContainerPanel.repaint();
+    }
 
-            if (s.isBooked()) {
-                btn.setText("Seat " + i + " [Booked]");
-                btn.setBackground(new Color(231, 76, 60));
-                btn.setForeground(Color.WHITE);
-                btn.setEnabled(false);
-            } else {
-                btn.setText("Seat " + i + " (Avail)");
-                btn.setBackground(new Color(235, 247, 238));
-                btn.setForeground(new Color(20, 90, 50));
-                final int seatNum = i;
-                btn.addActionListener(e -> {
-                    selectedSeatNumber = seatNum;
-                    statusLabel.setText("Selected Seat: #" + seatNum + " on " + bus.getRegistrationNumber());
-                    fareBreakdownLabel.setText("Base: INR " + (int)bus.calculateBaseFare() + " | Total Payable (w/ GST): INR " + (int)bus.calculateTotalFareWithGst());
-                });
-            }
-            seatGridPanel.add(btn);
-        }
-
-        seatGridPanel.revalidate();
-        seatGridPanel.repaint();
+    private void renderCoachLayoutWithSelected(Bus bus, int seatNum) {
+        coachContainerPanel.removeAll();
+        BusCoachCanvas canvas = new BusCoachCanvas(bus, seatNum, clicked -> {
+            selectedSeatNumber = clicked;
+            statusLabel.setText("Selected Seat: #" + clicked + " on " + bus.getRegistrationNumber());
+            fareBreakdownLabel.setText("Base Fare: INR " + (int)bus.calculateBaseFare() + " + 5% GST = Total Payable: INR " + (int)bus.calculateTotalFareWithGst());
+            renderCoachLayoutWithSelected(bus, clicked);
+        });
+        coachContainerPanel.add(new JScrollPane(canvas), BorderLayout.CENTER);
+        coachContainerPanel.revalidate();
+        coachContainerPanel.repaint();
     }
 
     private void handleBooking() {
         if (selectedSeatNumber == -1) {
-            JOptionPane.showMessageDialog(this, "Please select an available seat from the bus coach first.", "No Seat Selected", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Please select an available blue seat on the bus blueprint first.", "Berth Selection Required", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -746,7 +1019,7 @@ public class BusReservationGUI extends JFrame {
         try {
             Ticket t = service.bookSeat(busId, selectedSeatNumber, currentUser);
             showDigitalBoardingPass(t, bus);
-            renderSeatGrid();
+            renderCoachLayout();
             refreshMyBookings();
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Reservation Failed", JOptionPane.ERROR_MESSAGE);
@@ -754,73 +1027,84 @@ public class BusReservationGUI extends JFrame {
     }
 
     private void showDigitalBoardingPass(Ticket t, Bus bus) {
-        JDialog passDialog = new JDialog(this, "Official Boarding Pass", true);
-        passDialog.setSize(560, 440);
+        JDialog passDialog = new JDialog(this, "Official Confirmed Boarding Pass", true);
+        passDialog.setSize(580, 480);
         passDialog.setLocationRelativeTo(this);
         passDialog.setLayout(new BorderLayout());
 
-        JPanel pass = new JPanel();
-        pass.setBackground(Color.WHITE);
-        pass.setBorder(new CompoundBorder(new LineBorder(new Color(24, 43, 73), 2), new EmptyBorder(20, 25, 20, 25)));
-        pass.setLayout(new BoxLayout(pass, BoxLayout.Y_AXIS));
+        JPanel pass = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        JLabel header = new JLabel("BHARAT ROAD TRANSPORT CORPORATION (BRTC)");
-        header.setFont(new Font("Segoe UI", Font.BOLD, 15));
-        header.setForeground(new Color(24, 43, 73));
-        header.setAlignmentX(Component.CENTER_ALIGNMENT);
+                // Card background with rounded edge
+                g2.setColor(Color.WHITE);
+                g2.fill(new RoundRectangle2D.Double(15, 15, getWidth() - 30, getHeight() - 30, 24, 24));
 
-        JLabel subHeader = new JLabel("CONFIRMED E-RESERVATION SLIP / BOARDING CARD");
-        subHeader.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        subHeader.setForeground(new Color(30, 130, 76));
-        subHeader.setAlignmentX(Component.CENTER_ALIGNMENT);
+                // Header banner gradient
+                GradientPaint banner = new GradientPaint(15, 15, new Color(15, 32, 67), getWidth() - 15, 15, new Color(30, 80, 160));
+                g2.setPaint(banner);
+                g2.fill(new RoundRectangle2D.Double(15, 15, getWidth() - 30, 75, 24, 24));
+                g2.fillRect(15, 60, getWidth() - 30, 30); // flat bottom for banner
 
-        JSeparator sep = new JSeparator();
-        sep.setMaximumSize(new Dimension(500, 10));
+                // Gold Accent line
+                g2.setColor(new Color(255, 193, 7));
+                g2.fillRect(15, 87, getWidth() - 30, 3);
 
-        JLabel pnrLbl = new JLabel("PNR NUMBER: " + t.getPnrNumber() + "      |      DATE: " + t.getBookingDate());
-        pnrLbl.setFont(new Font("Segoe UI", Font.BOLD, 13));
+                // Border outline
+                g2.setColor(new Color(220, 226, 235));
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.draw(new RoundRectangle2D.Double(15, 15, getWidth() - 30, getHeight() - 30, 24, 24));
+                g2.dispose();
+            }
+        };
+        pass.setLayout(null);
 
-        JLabel routeLbl = new JLabel("ROUTE: " + bus.getRoute().getOrigin() + " -> " + bus.getRoute().getDestination());
-        routeLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        JLabel orgLbl = new JLabel("BHARAT LUXURY INTERCITY CO-OPERATIVE", SwingConstants.CENTER);
+        orgLbl.setForeground(Color.WHITE);
+        orgLbl.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        orgLbl.setBounds(25, 25, 510, 25);
+        pass.add(orgLbl);
 
-        JLabel busLbl = new JLabel("SERVICE: " + bus.getBusServiceType() + " (" + bus.getRegistrationNumber() + ")");
-        busLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        JLabel subLbl = new JLabel("OFFICIAL ELECTRONIC BOARDING PASS (IRCTC/RTC COMPLIANT)", SwingConstants.CENTER);
+        subLbl.setForeground(new Color(255, 215, 0));
+        subLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        subLbl.setBounds(25, 52, 510, 20);
+        pass.add(subLbl);
 
-        JLabel platLbl = new JLabel("DEPARTURE: " + bus.getRoute().getDepartureTime() + " | PLATFORM: " + bus.getRoute().getBoardingPlatform());
-        platLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        int y = 110;
+        addPassRow(pass, "PNR NUMBER:", t.getPnrNumber(), "DATE / TIME:", t.getBookingDate(), y);
+        y += 40;
+        addPassRow(pass, "PASSENGER:", t.getPassengerName(), "MOBILE NO:", t.getPassengerMobile(), y);
+        y += 40;
+        addPassRow(pass, "FROM / ORIGIN:", bus.getRoute().getOrigin(), "TO / DEST:", bus.getRoute().getDestination(), y);
+        y += 40;
+        addPassRow(pass, "BUS SERVICE:", bus.getBusServiceType(), "REGISTRATION:", bus.getRegistrationNumber(), y);
+        y += 40;
+        addPassRow(pass, "DEPARTURE:", bus.getRoute().getDepartureTime(), "PLATFORM:", bus.getRoute().getBoardingPlatform(), y);
+        y += 40;
 
-        JLabel seatLbl = new JLabel("ASSIGNED SEAT: #" + t.getSeatNumber() + "   |   STATUS: CONFIRMED");
-        seatLbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        seatLbl.setForeground(new Color(180, 40, 40));
+        // Seat & Fare Highlight Pill
+        JPanel pill = new JPanel(new GridLayout(1, 2));
+        pill.setBackground(new Color(235, 247, 238));
+        pill.setBorder(new CompoundBorder(new LineBorder(new Color(40, 167, 69), 1, true), new EmptyBorder(8, 12, 8, 12)));
+        pill.setBounds(35, y, 490, 50);
 
-        JLabel passLbl = new JLabel("PASSENGER: " + t.getPassengerName() + " (" + t.getPassengerMobile() + ")");
-        passLbl.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        JLabel seatBadge = new JLabel("SEAT ALLOCATED: #" + t.getSeatNumber());
+        seatBadge.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        seatBadge.setForeground(new Color(30, 126, 52));
 
-        JLabel fareLbl = new JLabel("TOTAL FARE PAID: INR " + (int) t.getFare() + " (INCL. APPLICABLE TAXES)");
-        fareLbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        fareLbl.setForeground(new Color(24, 43, 73));
+        JLabel fareBadge = new JLabel("TOTAL FARE: INR " + (int) t.getFare(), SwingConstants.RIGHT);
+        fareBadge.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        fareBadge.setForeground(new Color(15, 32, 67));
 
-        pass.add(header);
-        pass.add(Box.createVerticalStrut(4));
-        pass.add(subHeader);
-        pass.add(Box.createVerticalStrut(10));
-        pass.add(sep);
-        pass.add(Box.createVerticalStrut(10));
-        pass.add(pnrLbl);
-        pass.add(Box.createVerticalStrut(6));
-        pass.add(routeLbl);
-        pass.add(Box.createVerticalStrut(6));
-        pass.add(busLbl);
-        pass.add(Box.createVerticalStrut(6));
-        pass.add(platLbl);
-        pass.add(Box.createVerticalStrut(6));
-        pass.add(passLbl);
-        pass.add(Box.createVerticalStrut(10));
-        pass.add(seatLbl);
-        pass.add(Box.createVerticalStrut(8));
-        pass.add(fareLbl);
+        pill.add(seatBadge);
+        pill.add(fareBadge);
+        pass.add(pill);
 
-        JButton closeBtn = new JButton("Close / Save Boarding Pass");
+        ModernButton closeBtn = new ModernButton("Dismiss & Return to Portal", new Color(108, 117, 125), new Color(90, 98, 104));
         closeBtn.addActionListener(e -> passDialog.dispose());
 
         passDialog.add(pass, BorderLayout.CENTER);
@@ -828,39 +1112,79 @@ public class BusReservationGUI extends JFrame {
         passDialog.setVisible(true);
     }
 
+    private void addPassRow(JPanel parent, String title1, String val1, String title2, String val2, int y) {
+        JLabel t1 = new JLabel(title1);
+        t1.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        t1.setForeground(new Color(108, 117, 125));
+        t1.setBounds(38, y, 95, 18);
+
+        JLabel v1 = new JLabel(val1);
+        v1.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        v1.setForeground(new Color(33, 37, 41));
+        v1.setBounds(135, y, 145, 18);
+
+        JLabel t2 = new JLabel(title2);
+        t2.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        t2.setForeground(new Color(108, 117, 125));
+        t2.setBounds(285, y, 95, 18);
+
+        JLabel v2 = new JLabel(val2);
+        v2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        v2.setForeground(new Color(33, 37, 41));
+        v2.setBounds(380, y, 150, 18);
+
+        parent.add(t1);
+        parent.add(v1);
+        parent.add(t2);
+        parent.add(v2);
+    }
+
     private JPanel createMyBookingsPanel() {
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+        JPanel panel = new JPanel(new BorderLayout(14, 14));
+        panel.setBackground(new Color(245, 247, 250));
+        panel.setBorder(new EmptyBorder(16, 18, 16, 18));
 
         String[] cols = {"PNR Number", "Bus Number", "Seat #", "Passenger", "Total Fare", "Booking Date", "Status"};
         ticketTableModel = new DefaultTableModel(cols, 0);
         JTable table = new JTable(ticketTableModel);
-        table.setRowHeight(24);
-        table.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        table.setRowHeight(32);
+        table.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+
+        JTableHeader th = table.getTableHeader();
+        th.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        th.setBackground(new Color(24, 43, 73));
+        th.setForeground(Color.WHITE);
+
+        // Center aligned cells
+        DefaultTableCellRenderer center = new DefaultTableCellRenderer();
+        center.setHorizontalAlignment(SwingConstants.CENTER);
+        for (int i = 0; i < table.getColumnCount(); i++) {
+            table.getColumnModel().getColumn(i).setCellRenderer(center);
+        }
 
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton cancelBtn = new JButton("Cancel Selected Ticket");
-        cancelBtn.setBackground(new Color(192, 57, 43));
-        cancelBtn.setForeground(Color.WHITE);
-        cancelBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        bottom.setOpaque(false);
+
+        ModernButton cancelBtn = new ModernButton("  Cancel Selected Ticket  ", new Color(220, 53, 69), new Color(185, 40, 50));
+        cancelBtn.setPreferredSize(new Dimension(220, 40));
 
         cancelBtn.addActionListener(e -> {
             int row = table.getSelectedRow();
             if (row == -1) {
-                JOptionPane.showMessageDialog(this, "Select a booking row from the table first.", "Selection Needed", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Select a booking row to proceed with cancellation.", "Selection Required", JOptionPane.WARNING_MESSAGE);
                 return;
             }
             String pnr = (String) ticketTableModel.getValueAt(row, 0);
-            int confirm = JOptionPane.showConfirmDialog(this, "Confirm cancellation of Ticket " + pnr + "?", "Verify Cancellation", JOptionPane.YES_NO_OPTION);
+            int confirm = JOptionPane.showConfirmDialog(this, "Verify cancellation for ticket " + pnr + "?", "Cancellation Authorization", JOptionPane.YES_NO_OPTION);
             if (confirm != JOptionPane.YES_OPTION) return;
 
             try {
                 if (service.cancelTicket(pnr)) {
-                    JOptionPane.showMessageDialog(this, "Ticket " + pnr + " is cancelled. The seat has been made available for booking.");
+                    JOptionPane.showMessageDialog(this, "Ticket " + pnr + " has been cancelled. Seat refunded to pool.");
                     refreshMyBookings();
-                    renderSeatGrid();
+                    renderCoachLayout();
                 } else {
-                    JOptionPane.showMessageDialog(this, "Could not cancel ticket.");
+                    JOptionPane.showMessageDialog(this, "Ticket already cancelled.");
                 }
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, ex.getMessage());
@@ -889,30 +1213,33 @@ public class BusReservationGUI extends JFrame {
     }
 
     private JPanel createAdminPanel() {
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+        JPanel panel = new JPanel(new BorderLayout(14, 14));
+        panel.setBackground(new Color(245, 247, 250));
+        panel.setBorder(new EmptyBorder(16, 18, 16, 18));
 
-        JPanel form = new JPanel(new GridLayout(6, 2, 10, 10));
-        form.setBorder(new TitledBorder("Register & Dispatch New Bus to Depot"));
+        JPanel form = new JPanel(new GridLayout(6, 2, 10, 12));
+        form.setBackground(Color.WHITE);
+        form.setBorder(new CompoundBorder(
+            new TitledBorder(new LineBorder(new Color(225, 230, 238)), "Register & Dispatch New Luxury Coach"),
+            new EmptyBorder(14, 18, 14, 18)
+        ));
 
         JTextField busIdField = new JTextField("KL-15-TRV-890");
         JTextField plateField = new JTextField("KL-15-TRV-890");
-        JComboBox<String> typeBox = new JComboBox<>(new String[]{"KSRTC Super Fast Non-AC", "Airavat Club Class Multi-Axle AC", "KSRTC-SWIFT AC Gajaraj Sleeper"});
+        JComboBox<String> typeBox = new JComboBox<>(new String[]{"KSRTC Super Fast Express (Non-AC)", "Airavat Club Class Multi-Axle Volvo", "KSRTC-SWIFT Gajaraj AC Sleeper"});
         JTextField seatsField = new JTextField("24");
 
         form.add(new JLabel("Service Identifier:"));
         form.add(busIdField);
-        form.add(new JLabel("Vehicle Plate (RTO Approved):"));
+        form.add(new JLabel("Vehicle Registration Plate:"));
         form.add(plateField);
-        form.add(new JLabel("Bus Coach Category:"));
+        form.add(new JLabel("Coach Service Category:"));
         form.add(typeBox);
-        form.add(new JLabel("Total Certified Seats:"));
+        form.add(new JLabel("Seating Capacity:"));
         form.add(seatsField);
 
-        JButton addBtn = new JButton("Authorize & Add Bus to Active Fleet");
-        addBtn.setBackground(new Color(41, 128, 185));
-        addBtn.setForeground(Color.WHITE);
-        addBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        ModernButton addBtn = new ModernButton("Authorize & Dispatch Coach to Depot", new Color(15, 32, 67), new Color(30, 80, 160));
+        addBtn.setPreferredSize(new Dimension(300, 42));
 
         addBtn.addActionListener(e -> {
             try {
@@ -923,9 +1250,9 @@ public class BusReservationGUI extends JFrame {
 
                 Bus newBus;
                 String type = (String) typeBox.getSelectedItem();
-                if ("Airavat Club Class Multi-Axle AC".equals(type)) {
+                if ("Airavat Club Class Multi-Axle Volvo".equals(type)) {
                     newBus = new GarudaAiravatAcBus(id, plate, defaultRoute, seats);
-                } else if ("KSRTC-SWIFT AC Gajaraj Sleeper".equals(type)) {
+                } else if ("KSRTC-SWIFT Gajaraj AC Sleeper".equals(type)) {
                     newBus = new SwiftSleeperBus(id, plate, defaultRoute, seats);
                 } else {
                     newBus = new SuperFastBus(id, plate, defaultRoute, seats);
@@ -933,7 +1260,7 @@ public class BusReservationGUI extends JFrame {
 
                 db.saveBus(newBus);
                 refreshBusSelector();
-                JOptionPane.showMessageDialog(this, "Bus service " + plate + " added to official schedule!");
+                JOptionPane.showMessageDialog(this, "Coach " + plate + " added to live schedule!");
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Input Error: " + ex.getMessage());
             }
