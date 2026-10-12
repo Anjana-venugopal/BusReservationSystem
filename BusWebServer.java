@@ -15,13 +15,13 @@ import java.util.concurrent.locks.ReentrantLock;
    TIER 1 & 2: OOP DOMAIN ENTITIES & PERSISTENCE
    ============================================================================ */
 
-class Seat implements Serializable {
+class WebSeat implements Serializable {
     private final int seatNumber;
     private boolean isBooked;
     private String passengerName;
     private final transient ReentrantLock lock = new ReentrantLock();
 
-    public Seat(int seatNumber) {
+    public WebSeat(int seatNumber) {
         this.seatNumber = seatNumber;
         this.isBooked = false;
         this.passengerName = null;
@@ -50,11 +50,11 @@ class Seat implements Serializable {
     }
 }
 
-class Route implements Serializable {
+class WebRoute implements Serializable {
     private final String routeId, origin, destination, departureTime, platform;
     private final double distanceKm;
 
-    public Route(String routeId, String origin, String destination, double distanceKm, String departureTime, String platform) {
+    public WebRoute(String routeId, String origin, String destination, double distanceKm, String departureTime, String platform) {
         this.routeId = routeId;
         this.origin = origin;
         this.destination = destination;
@@ -71,22 +71,22 @@ class Route implements Serializable {
     public String getPlatform() { return platform; }
 }
 
-abstract class Bus implements Serializable {
+abstract class WebBus implements Serializable {
     private final String busId, regNo;
-    private final Route route;
-    private final Map<Integer, Seat> seats = new HashMap<>();
+    private final WebRoute route;
+    private final Map<Integer, WebSeat> seats = new HashMap<>();
 
-    public Bus(String busId, String regNo, Route route, int totalSeats) {
+    public WebBus(String busId, String regNo, WebRoute route, int totalSeats) {
         this.busId = busId;
         this.regNo = regNo;
         this.route = route;
-        for (int i = 1; i <= totalSeats; i++) seats.put(i, new Seat(i));
+        for (int i = 1; i <= totalSeats; i++) seats.put(i, new WebSeat(i));
     }
 
     public String getBusId() { return busId; }
     public String getRegNo() { return regNo; }
-    public Route getRoute() { return route; }
-    public Map<Integer, Seat> getSeats() { return seats; }
+    public WebRoute getRoute() { return route; }
+    public Map<Integer, WebSeat> getSeats() { return seats; }
     public abstract String getBusType();
     public abstract double calculateBaseFare();
 
@@ -95,31 +95,31 @@ abstract class Bus implements Serializable {
     }
 }
 
-class SuperFastBus extends Bus {
-    public SuperFastBus(String id, String reg, Route r, int s) { super(id, reg, r, s); }
+class WebSuperFastBus extends WebBus {
+    public WebSuperFastBus(String id, String reg, WebRoute r, int s) { super(id, reg, r, s); }
     @Override public String getBusType() { return "KSRTC Super Fast Express (Non-AC)"; }
     @Override public double calculateBaseFare() { return Math.round(getRoute().getDistanceKm() * 1.30 + 25.0); }
 }
 
-class AiravatVolvoBus extends Bus {
-    public AiravatVolvoBus(String id, String reg, Route r, int s) { super(id, reg, r, s); }
+class WebAiravatVolvoBus extends WebBus {
+    public WebAiravatVolvoBus(String id, String reg, WebRoute r, int s) { super(id, reg, r, s); }
     @Override public String getBusType() { return "Airavat Club Class Volvo Multi-Axle AC"; }
     @Override public double calculateBaseFare() { return Math.round((getRoute().getDistanceKm() * 2.15) + 120.0); }
 }
 
-class SwiftSleeperBus extends Bus {
-    public SwiftSleeperBus(String id, String reg, Route r, int s) { super(id, reg, r, s); }
+class WebSwiftSleeperBus extends WebBus {
+    public WebSwiftSleeperBus(String id, String reg, WebRoute r, int s) { super(id, reg, r, s); }
     @Override public String getBusType() { return "KSRTC-SWIFT Gajaraj AC Sleeper"; }
     @Override public double calculateBaseFare() { return Math.round((getRoute().getDistanceKm() * 2.65) + 200.0); }
 }
 
-class Ticket implements Serializable {
+class WebTicket implements Serializable {
     private final String pnr, busId, name, mobile, date;
     private final int seatNumber;
     private final double fare;
     private boolean active;
 
-    public Ticket(String pnr, String busId, String name, String mobile, int seatNumber, double fare) {
+    public WebTicket(String pnr, String busId, String name, String mobile, int seatNumber, double fare) {
         this.pnr = pnr;
         this.busId = busId;
         this.name = name;
@@ -145,49 +145,49 @@ class Ticket implements Serializable {
    TIER 3: CENTRAL APPLICATION REPOSITORY & WEB SERVER
    ============================================================================ */
 
-class BusRepository {
-    private static BusRepository instance;
-    private final Map<String, Bus> buses = new ConcurrentHashMap<>();
-    private final Map<String, Ticket> tickets = new ConcurrentHashMap<>();
+class WebBusRepository {
+    private static WebBusRepository instance;
+    private final Map<String, WebBus> buses = new ConcurrentHashMap<>();
+    private final Map<String, WebTicket> tickets = new ConcurrentHashMap<>();
 
-    private BusRepository() {
-        Route r1 = new Route("RT-101", "Thiruvananthapuram (TVC)", "Ernakulam South (KSRTC)", 218.0, "06:00 AM", "Platform 3");
-        Route r2 = new Route("RT-204", "Kozhikode Bus Stand", "Bengaluru (Shantinagar)", 354.0, "09:30 PM", "Platform 7");
-        Route r3 = new Route("RT-308", "Ernakulam Vyttila Hub", "Chennai (CMBT / Koyambedu)", 684.0, "04:45 PM", "Platform 1");
+    private WebBusRepository() {
+        WebRoute r1 = new WebRoute("RT-101", "Thiruvananthapuram (TVC)", "Ernakulam South (KSRTC)", 218.0, "06:00 AM", "Platform 3");
+        WebRoute r2 = new WebRoute("RT-204", "Kozhikode Bus Stand", "Bengaluru (Shantinagar)", 354.0, "09:30 PM", "Platform 7");
+        WebRoute r3 = new WebRoute("RT-308", "Ernakulam Vyttila Hub", "Chennai (CMBT / Koyambedu)", 684.0, "04:45 PM", "Platform 1");
 
-        buses.put("KL-15-A-1102", new SuperFastBus("KL-15-A-1102", "KL-15-A-1102", r1, 28));
-        buses.put("KA-57-F-9090", new AiravatVolvoBus("KA-57-F-9090", "KA-57-F-9090", r2, 24));
-        buses.put("SWIFT-KL-01-999", new SwiftSleeperBus("SWIFT-KL-01-999", "KL-01-CZ-8888", r3, 20));
+        buses.put("KL-15-A-1102", new WebSuperFastBus("KL-15-A-1102", "KL-15-A-1102", r1, 28));
+        buses.put("KA-57-F-9090", new WebAiravatVolvoBus("KA-57-F-9090", "KA-57-F-9090", r2, 24));
+        buses.put("SWIFT-KL-01-999", new WebSwiftSleeperBus("SWIFT-KL-01-999", "KL-01-CZ-8888", r3, 20));
     }
 
-    public static synchronized BusRepository getInstance() {
-        if (instance == null) instance = new BusRepository();
+    public static synchronized WebBusRepository getInstance() {
+        if (instance == null) instance = new WebBusRepository();
         return instance;
     }
 
-    public List<Bus> getAllBuses() { return new ArrayList<>(buses.values()); }
-    public Bus getBus(String id) { return buses.get(id); }
-    public List<Ticket> getAllTickets() { return new ArrayList<>(tickets.values()); }
+    public List<WebBus> getAllBuses() { return new ArrayList<>(buses.values()); }
+    public WebBus getBus(String id) { return buses.get(id); }
+    public List<WebTicket> getAllTickets() { return new ArrayList<>(tickets.values()); }
 
-    public synchronized Ticket book(String busId, int seatNum, String name, String mobile) throws Exception {
-        Bus bus = getBus(busId);
+    public synchronized WebTicket book(String busId, int seatNum, String name, String mobile) throws Exception {
+        WebBus bus = getBus(busId);
         if (bus == null) throw new IllegalArgumentException("Bus schedule not found.");
-        Seat s = bus.getSeats().get(seatNum);
+        WebSeat s = bus.getSeats().get(seatNum);
         if (s == null) throw new IllegalArgumentException("Invalid seat requested.");
         if (!s.reserve(name)) throw new IllegalStateException("Seat #" + seatNum + " was just booked by another user!");
 
         String pnr = "KL" + (1000000 + new Random().nextInt(9000000));
-        Ticket t = new Ticket(pnr, busId, name, mobile, seatNum, bus.calculateTotalFareWithGst());
+        WebTicket t = new WebTicket(pnr, busId, name, mobile, seatNum, bus.calculateTotalFareWithGst());
         tickets.put(pnr, t);
         return t;
     }
 
     public synchronized boolean cancel(String pnr) {
-        Ticket t = tickets.get(pnr);
+        WebTicket t = tickets.get(pnr);
         if (t == null || !t.isActive()) return false;
-        Bus bus = getBus(t.getBusId());
+        WebBus bus = getBus(t.getBusId());
         if (bus != null) {
-            Seat s = bus.getSeats().get(t.getSeatNumber());
+            WebSeat s = bus.getSeats().get(t.getSeatNumber());
             if (s != null) s.cancel();
         }
         t.cancel();
@@ -210,7 +210,7 @@ public class BusWebServer {
     }
 
     static class MainHandler implements HttpHandler {
-        private final BusRepository repo = BusRepository.getInstance();
+        private final WebBusRepository repo = WebBusRepository.getInstance();
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -231,7 +231,7 @@ public class BusWebServer {
             }
 
             String alertMessage = null;
-            Ticket confirmedTicket = null;
+            WebTicket confirmedTicket = null;
 
             if ("POST".equalsIgnoreCase(method)) {
                 String action = params.get("action");
@@ -256,7 +256,7 @@ public class BusWebServer {
             }
 
             String selectedBusId = params.getOrDefault("busId", repo.getAllBuses().get(0).getBusId());
-            Bus selectedBus = repo.getBus(selectedBusId);
+            WebBus selectedBus = repo.getBus(selectedBusId);
 
             String html = renderHtml(selectedBus, alertMessage, confirmedTicket);
             byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
@@ -283,7 +283,7 @@ public class BusWebServer {
             return map;
         }
 
-        private String renderHtml(Bus bus, String alert, Ticket ticket) {
+        private String renderHtml(WebBus bus, String alert, WebTicket ticket) {
             StringBuilder sb = new StringBuilder();
             sb.append("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>");
             sb.append("<title>Bharat Yatra - Intercity Bus Booking</title>");
@@ -325,7 +325,7 @@ public class BusWebServer {
 
             sb.append("<div class='card'>");
             sb.append("<form method='GET'><label><b>Select Bus Schedule:</b></label><select name='busId' onchange='this.form.submit()'>");
-            for (Bus b : repo.getAllBuses()) {
+            for (WebBus b : repo.getAllBuses()) {
                 String sel = b.getBusId().equals(bus.getBusId()) ? "selected" : "";
                 sb.append("<option value='").append(b.getBusId()).append("' ").append(sel).append(">")
                   .append(b.getBusType()).append(" | ").append(b.getRoute().getOrigin()).append(" ➔ ")
@@ -344,7 +344,7 @@ public class BusWebServer {
             sb.append("<div class='seat-matrix'>");
 
             for (int i = 1; i <= bus.getSeats().size(); i++) {
-                Seat s = bus.getSeats().get(i);
+                WebSeat s = bus.getSeats().get(i);
                 if (s.isBooked()) {
                     sb.append("<div class='seat booked'>Seat ").append(i).append("<br/><small>Booked</small></div>");
                 } else {
@@ -374,12 +374,12 @@ public class BusWebServer {
             // Bottom: Real-Time Booked Tickets
             sb.append("<div class='card'>");
             sb.append("<h3>Active Bookings & Real-Time Cancellation</h3>");
-            List<Ticket> tickets = repo.getAllTickets();
+            List<WebTicket> tickets = repo.getAllTickets();
             if (tickets.isEmpty()) {
                 sb.append("<p style='color:#64748b;'>No tickets reserved yet. Book a seat above!</p>");
             } else {
                 sb.append("<table><tr><th>PNR</th><th>Bus</th><th>Seat #</th><th>Passenger</th><th>Fare</th><th>Date</th><th>Status</th><th>Action</th></tr>");
-                for (Ticket t : tickets) {
+                for (WebTicket t : tickets) {
                     sb.append("<tr><td><b>").append(t.getPnr()).append("</b></td>");
                     sb.append("<td>").append(t.getBusId()).append("</td>");
                     sb.append("<td>Seat ").append(t.getSeatNumber()).append("</td>");
