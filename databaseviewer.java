@@ -8,60 +8,53 @@ public class DatabaseViewer {
     public static void main(String[] args) {
         File file = new File(STORAGE_FILE);
         if (!file.exists()) {
-            System.out.println("❌ Database file not found: " + STORAGE_FILE);
+            // Also check alternate filename
+            file = new File("bharat_yatra_database.dat");
+        }
+
+        if (!file.exists()) {
+            System.out.println("No database file found in current directory.");
             return;
         }
 
-        System.out.println("==================================================================");
-        System.out.println("          BHARAT YATRA - PERSISTED DATABASE VIEWER                ");
-        System.out.println("          File: " + file.getAbsolutePath());
-        System.out.println("          Size: " + file.length() + " bytes");
-        System.out.println("==================================================================\n");
+        System.out.println("=================================================");
+        System.out.println("  DATABASE FILE FOUND: " + file.getName());
+        System.out.println("  SIZE: " + file.length() + " bytes");
+        System.out.println("=================================================");
 
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(file))) {
-            Map<String, User> users = (Map<String, User>) ois.readObject();
-            Map<String, Bus> buses = (Map<String, Bus>) ois.readObject();
-            Map<String, Route> routes = (Map<String, Route>) ois.readObject();
-            Map<String, Ticket> tickets = (Map<String, Ticket>) ois.readObject();
+            Object users = ois.readObject();
+            Object buses = ois.readObject();
+            Object routes = ois.readObject();
+            Object tickets = ois.readObject();
 
-            // 1. Display Users
-            System.out.println("--- [ TABLE: USERS (" + users.size() + " Records) ] ---");
-            for (User u : users.values()) {
-                System.out.printf("• Username: %-12s | Name: %-20s | Role: %s%n",
-                        u.getUsername(), u.getFullName(), u.getRole());
+            System.out.println("\n[TABLE 1: USERS]");
+            if (users instanceof Map) {
+                ((Map<?, ?>) users).forEach((k, v) -> System.out.println("  • " + k + " => " + v.getClass().getSimpleName()));
             }
 
-            // 2. Display Routes
-            System.out.println("\n--- [ TABLE: ROUTES (" + routes.size() + " Records) ] ---");
-            for (Route r : routes.values()) {
-                System.out.printf("• Route ID: %-10s | %s -> %s (%.0f km) | Dept: %s%n",
-                        r.getRouteId(), r.getOrigin(), r.getDestination(), r.getDistanceKm(), r.getDepartureTime());
+            System.out.println("\n[TABLE 2: BUSES]");
+            if (buses instanceof Map) {
+                ((Map<?, ?>) buses).forEach((k, v) -> System.out.println("  • Bus ID: " + k));
             }
 
-            // 3. Display Buses
-            System.out.println("\n--- [ TABLE: BUS FLEET (" + buses.size() + " Records) ] ---");
-            for (Bus b : buses.values()) {
-                System.out.printf("• Bus ID: %-15s | Plate: %-14s | Type: %-32s | Avail Seats: %d/%d%n",
-                        b.getBusId(), b.getRegistrationNumber(), b.getBusServiceType(),
-                        b.getAvailableSeatCount(), b.getSeats().size());
+            System.out.println("\n[TABLE 3: ROUTES]");
+            if (routes instanceof Map) {
+                ((Map<?, ?>) routes).forEach((k, v) -> System.out.println("  • Route: " + k));
             }
 
-            // 4. Display Issued Tickets
-            System.out.println("\n--- [ TABLE: TICKETS / PNR TRANSACTIONS (" + tickets.size() + " Records) ] ---");
-            if (tickets.isEmpty()) {
-                System.out.println("  (No tickets booked yet)");
-            } else {
-                for (Ticket t : tickets.values()) {
-                    System.out.printf("• PNR: %-10s | Bus: %-14s | Seat: #%-2d | Passenger: %-18s | Fare: ₹%.0f | Status: %s%n",
-                            t.getPnrNumber(), t.getBusId(), t.getSeatNumber(),
-                            t.getPassengerName(), t.getFare(), t.isActive() ? "CONFIRMED" : "CANCELLED");
+            System.out.println("\n[TABLE 4: TICKETS / BOOKINGS]");
+            if (tickets instanceof Map) {
+                Map<?, ?> ticketMap = (Map<?, ?>) tickets;
+                if (ticketMap.isEmpty()) {
+                    System.out.println("  (No tickets booked yet)");
+                } else {
+                    ticketMap.forEach((k, v) -> System.out.println("  • PNR: " + k));
                 }
             }
-            System.out.println("\n==================================================================");
-
+            System.out.println("\n=================================================");
         } catch (Exception e) {
-            System.err.println("Error reading binary database file: " + e.getMessage());
-            e.printStackTrace();
+            System.out.println("Error reading file: " + e.getMessage());
         }
     }
 }
