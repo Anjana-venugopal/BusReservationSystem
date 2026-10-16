@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 /* ============================================================================
-   TIER 1 & 2: OOP DOMAIN ENTITIES & PERSISTENCE
+TIER 1 & 2: OOP DOMAIN ENTITIES & PERSISTENCE
    ============================================================================ */
 
 class WebSeat implements Serializable {
@@ -141,7 +141,7 @@ class WebTicket implements Serializable {
 }
 
 /* ============================================================================
-   TIER 3: CENTRAL APPLICATION REPOSITORY & WEB SERVER
+TIER 3: CENTRAL APPLICATION REPOSITORY & WEB SERVER
    ============================================================================ */
 
 class WebBusRepository {
